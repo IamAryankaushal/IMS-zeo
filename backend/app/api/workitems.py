@@ -136,6 +136,7 @@ async def transition_work_item(
             item.mttr_seconds = int((now - item.first_signal_at).total_seconds())
 
     await db.flush()
+    await db.refresh(item)
     await invalidate_dashboard_cache(str(work_item_id))
     return WorkItemResponse.model_validate(item)
 
