@@ -798,8 +798,4 @@ Claude was used for:
 - Implementing the Strategy and State design patterns
 - Writing the unit test suite
 - Debugging dependency version conflicts (motor/pymongo compatibility)
-- Writing this README
-
-All code was reviewed, understood, and verified to be working end-to-end
-before submission. The conversation transcript with all prompts used is
-included in the repository as `PROMPTS.md`.
+- Assisting with this README
