@@ -21,7 +21,8 @@ and manage failure mediation workflows from signal ingestion to root cause analy
 11. [Testing](#testing)
 12. [Sample Failure Simulation](#sample-failure-simulation)
 13. [API Reference](#api-reference)
-14. [Tools & Prompts Used](#tools--prompts-used)
+14. [Continuous Delivery Pipeline](#continuous-delivery-pipeline)
+15. [Tools & Prompts Used](#tools--prompts-used)
 
 ---
 
@@ -144,15 +145,21 @@ State Transition (user-triggered via UI):
 
 ```
 IMS/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # Continuous Delivery pipeline (4 jobs)
 ├── docker-compose.yml               # Orchestrates all 5 services
+├── Makefile                         # Local convenience commands
 ├── scripts/
 │   ├── init_postgres.sql            # Schema + TimescaleDB hypertable setup
 │   ├── simulate_failure.py          # Failure simulation script
-│   └── sample_signals.json          # Sample signal payloads
+│   ├── sample_signals.json          # Sample signal payloads
+│   └── deploy_local.sh             # Human-triggered delivery script
 ├── backend/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── pyproject.toml               # pytest config
+│   ├── ruff.toml                    # linter configuration
 │   ├── tests/
 │   │   └── test_core.py             # 29 unit tests
 │   └── app/
@@ -786,6 +793,133 @@ GET    /docs                    Swagger interactive API documentation
 
 ---
 
+## Continuous Delivery Pipeline
+
+The IMS uses a **Continuous Delivery** (not Continuous Deployment) pipeline via GitHub Actions.
+Every push is automatically validated and packaged — a human explicitly decides when to deploy
+by running `bash scripts/deploy_local.sh`. This matches real-world SRE practice where no code
+reaches production without human sign-off.
+
+### Why Continuous Delivery over Continuous Deployment
+
+| | Continuous Deployment | Continuous Delivery |
+|---|---|---|
+| Deploy trigger | Automatic on every push | Human-triggered after validation |
+| Risk | Broken code can reach production | Human gate prevents bad deploys |
+| SRE appropriateness | Low | High — matches real production practice |
+
+### Pipeline Jobs
+
+The pipeline runs automatically on every push to `main` or `develop`:
+
+**Job 1 — Unit Tests**
+
+Installs Python 3.12, runs all 29 pytest tests, uploads `test-results.xml` as a
+downloadable GitHub artifact. Pipeline stops here if any test fails.
+
+**Job 2 — Lint Check**
+
+Runs `ruff` across all backend Python files in `app/` and `tests/`. Reports errors
+inline on GitHub PRs. Pipeline stops here if lint errors are found.
+
+**Job 3 — Build & Package**
+
+Runs only if both Job 1 and Job 2 pass. Builds both Docker images, saves them
+as `.tar.gz` tarballs, and uploads them as downloadable GitHub artifacts retained
+for 7 days. Generates a delivery summary report in the GitHub Actions UI.
+
+**Job 4 — Notify Ready**
+
+Marks the pipeline as complete and prints instructions for local deployment.
+No automatic deployment happens at this stage.
+
+### Pipeline Triggers
+
+```yaml
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:          # manual trigger from GitHub UI
+    inputs:
+      reason:
+        description: "Reason for manual trigger"
+        required: false
+        default: "Manual delivery run"
+```
+
+### Delivery Flow
+
+```
+git push
+    │
+    ▼
+GitHub Actions validates automatically
+    ├── Job 1: Unit Tests      → 29 tests, upload results artifact
+    ├── Job 2: Lint Check      → ruff across all Python files
+    ├── Job 3: Build & Package → Docker images saved as .tar.gz (7 days)
+    └── Job 4: Notify Ready    → "DELIVERY PIPELINE COMPLETE"
+    │
+    │  ← pipeline stops here, NO auto-deploy
+    ▼
+Human runs: bash scripts/deploy_local.sh
+    ├── git pull origin main
+    ├── run tests locally (fail = abort)
+    ├── docker compose down
+    ├── docker compose build --no-cache
+    ├── docker compose up -d
+    ├── poll /health until healthy
+    └── print all service URLs
+```
+
+### What It Looks Like on GitHub
+
+After every push, the GitHub Actions tab shows:
+
+```
+IMS Continuous Delivery Pipeline      ✓ passed
+├── Unit Tests                        ✓ 29 passed in 0.12s
+├── Lint Check                        ✓ no issues found
+├── Build & Package                   ✓ artifacts ready (7 days)
+│   ├── ims-backend-image.tar.gz
+│   └── ims-frontend-image.tar.gz
+└── Mark Delivery Ready               ✓ DELIVERY PIPELINE COMPLETE
+```
+
+### Makefile Commands
+
+A `Makefile` is included at the project root for local convenience:
+
+```bash
+make up           # start all services (builds images)
+make up-d         # start in background
+make down         # stop all services
+make down-v       # stop and wipe all data
+make build        # rebuild all Docker images
+make restart      # restart all services
+make test         # run all 29 unit tests
+make lint         # run ruff linter
+make simulate     # run failure simulation script
+make burst        # burst simulation (triggers debounce)
+make health       # check /health endpoint
+make logs         # stream all service logs
+make logs-b       # stream backend logs only
+make ps           # show running containers
+make clean        # remove all containers, images, volumes
+```
+
+### Files Added for CI/CD
+
+| File | Purpose |
+|---|---|
+| `.github/workflows/ci.yml` | GitHub Actions CD pipeline — 4 jobs |
+| `Makefile` | Local convenience commands |
+| `scripts/deploy_local.sh` | Human-triggered delivery and restart script |
+| `backend/ruff.toml` | Ruff linter configuration |
+
+---
+
 ## Tools & Prompts Used
 
 This project was built with the assistance of Claude (Anthropic) as an
@@ -797,5 +931,6 @@ Claude was used for:
 - Generating boilerplate for FastAPI, SQLAlchemy, motor, and Redis async clients
 - Implementing the Strategy and State design patterns
 - Writing the unit test suite
-- Debugging dependency version conflicts (motor/pymongo compatibility)
-- Assisting with this README
+- Debugging dependency version conflicts (motor/pymongo compatibility, ruff.toml format)
+- Building the Continuous Delivery pipeline (GitHub Actions, Makefile, deploy script)
+- Writing this README
