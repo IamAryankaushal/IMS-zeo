@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "F401",  # unused imports — some are re-exported intentionally
+]
+
+exclude = [
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+]
