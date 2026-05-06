@@ -28,64 +28,8 @@ and manage failure mediation workflows from signal ingestion to root cause analy
 
 ## Architecture Overview
 
-```
-                        ┌─────────────────────────────────────┐
-                        │           INGESTION LAYER            │
-                        │                                      │
-              ┌─────────┤  HTTP POST /signals/ingest           │
-              │         │  HTTP POST /signals/ingest/batch     │
-              │         │  WebSocket /signals/ws               │
-              │         └──────────────┬──────────────────────┘
-              │                        │
-              │                        ▼
-              │         ┌─────────────────────────────────────┐
-              │         │         RATE LIMITER                 │
-              │         │     Token Bucket (10,000/sec)        │
-              │         └──────────────┬──────────────────────┘
-              │                        │ allowed
-              │                        ▼
-              │         ┌─────────────────────────────────────┐
-              │         │      IN-MEMORY ASYNC QUEUE           │
-              │         │   asyncio.Queue (max 50,000 items)   │◄── backpressure
-              │         └──────────────┬──────────────────────┘
-              │                        │
-              │                        ▼
-              │         ┌─────────────────────────────────────┐
-              │         │       BACKGROUND WORKER              │
-              │         │   concurrency=20 (semaphore)         │
-              │         │   retry logic (3x exponential)       │
-              │         └──────┬───────┬───────┬──────────────┘
-              │                │       │       │
-              │                ▼       ▼       ▼
-              │    ┌─────────────┐ ┌───────┐ ┌──────────────┐
-              │    │  DEBOUNCE   │ │ALERT  │ │    STATE     │
-              │    │  ENGINE     │ │STRAT. │ │   MACHINE    │
-              │    │ 100/10s     │ │PATTERN│ │OPEN→CLOSED   │
-              │    └──────┬──────┘ └───┬───┘ └──────┬───────┘
-              │           │            │             │
-              ▼           ▼            ▼             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        STORAGE LAYER                             │
-│                                                                  │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────┐  ┌───────────┐  │
-│  │  MongoDB    │  │  PostgreSQL  │  │ Redis  │  │Timescale  │  │
-│  │  Raw Signal │  │  Work Items  │  │  Hot   │  │  DB       │  │
-│  │  Audit Log  │  │  RCA Records │  │ Cache  │  │Time-series│  │
-│  └─────────────┘  └──────────────┘  └────────┘  └───────────┘  │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      FASTAPI BACKEND                             │
-│   /signals/ingest   /workitems   /rca   /health                 │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     REACT FRONTEND (Nginx)                       │
-│   Dashboard │ Incident Detail │ RCA Form │ Test Ingest          │
-└─────────────────────────────────────────────────────────────────┘
-```
+<img width="1536" height="930" alt="zeo-architecture" src="https://github.com/user-attachments/assets/d47fcbf8-9a02-4c08-b59c-39ee70003281" />
+
 
 ### Incident Lifecycle Flow
 
